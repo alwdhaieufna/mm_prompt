@@ -8,7 +8,7 @@
 # To use the shuffled data (if exists), please uncomment the Line 24.
 
 # Number of GPUs per GPU worker
-GPUS_PER_NODE=81
+GPUS_PER_NODE=4
 # Number of GPU workers, for single-worker training, please set to 1
 WORKER_CNT=1
 # The ip address of the rank-0 worker, for single-worker training, please set to localhost
@@ -18,11 +18,11 @@ export MASTER_PORT=8214
 # The rank of this worker, should be in {0, ..., WORKER_CNT-1}, for single-worker training, please set to 0
 export RANK=0 
 
-data_dir=../../dataset/vqa_data
+data_dir=../../vqa_data
 data=${data_dir}/vqa_train.tsv,${data_dir}/vqa_val.tsv
 # Note: If you have shuffled the data in advance, please uncomment the line below.
 # data=${data_dir}/vqa_train_1.tsv,${data_dir}/vqa_train_2.tsv,${data_dir}/vqa_train_3.tsv,${data_dir}/vqa_train_4.tsv,${data_dir}/vqa_train_5.tsv,${data_dir}/vqa_train_6.tsv,${data_dir}/vqa_train_7.tsv,${data_dir}/vqa_train_8.tsv,${data_dir}/vqa_train_9.tsv,${data_dir}/vqa_train_10.tsv,${data_dir}/vqa_val.tsv
-ans2label_file=../../dataset/vqa_data/trainval_ans2label.pkl
+ans2label_file=../../vqa_data/trainval_ans2label.pkl
 restore_file=../../checkpoints/ofa_large.pt
 selected_cols=0,5,2,3,4
 
@@ -56,6 +56,10 @@ ema_fp32="--ema-fp32"
 ema_decay=0.9999
 ema_start_update=0
 
+prompt_type_method=prefix
+encoder_prompt_length=100
+decoder_prompt_length=100
+
 # Specify the inference type in validation after each fine-tuning epoch
 # As mentioned in the readme, you can choose from allcand or beamsearch evaluation, default to allcand
 val_inference_type=allcand
@@ -72,7 +76,6 @@ for total_num_updates in {40000,}; do
         log_file=${log_dir}/${total_num_updates}"_"${warmup_updates}"_"${lr}"_"${patch_image_size}"_rank"${RANK}".log"
         save_path=${save_dir}/${total_num_updates}"_"${warmup_updates}"_"${lr}"_"${patch_image_size}
         mkdir -p $save_path
-        echo "1"
 
         python3 -m torch.distributed.launch --nproc_per_node=${GPUS_PER_NODE} --nnodes=${WORKER_CNT} --node_rank=${RANK} --master_addr=${MASTER_ADDR} --master_port=${MASTER_PORT} ../../train.py \
             ${data} \
@@ -127,6 +130,12 @@ for total_num_updates in {40000,}; do
             --add-type-embedding \
             --scale-attn \
             --scale-fc \
+            --encoder-prompt \
+            --decoder-prompt \
+            --encoder-prompt-type=${prompt_type_method} \
+            --decoder-prompt-type=${prompt_type_method} \
+            --encoder-prompt-length=${encoder_prompt_length} \
+            --decoder-prompt-length=${decoder_prompt_length} \
             --scale-heads \
             --disable-entangle \
             --num-bins=${num_bins} \
