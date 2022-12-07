@@ -8,7 +8,7 @@
 # To use the shuffled data (if exists), please uncomment the Line 24.
 
 # Number of GPUs per GPU worker
-GPUS_PER_NODE=8 
+GPUS_PER_NODE=4
 # Number of GPU workers, for single-worker training, please set to 1
 WORKER_CNT=1
 # The ip address of the rank-0 worker, for single-worker training, please set to localhost
@@ -19,7 +19,7 @@ export MASTER_PORT=8314
 export RANK=0 
 
 data_dir=../../vqa_data
-data=${data_dir}/vqa_train_full.tsv,${data_dir}/vqa_val_1k.tsv
+data=${data_dir}/vqa_train_100k.tsv,${data_dir}/vqa_val.tsv
 # Note: If you have shuffled the data in advance, please uncomment the line below.
 # data=${data_dir}/vqa_train_1.tsv,${data_dir}/vqa_train_2.tsv,${data_dir}/vqa_train_3.tsv,${data_dir}/vqa_train_4.tsv,${data_dir}/vqa_train_5.tsv,${data_dir}/vqa_train_6.tsv,${data_dir}/vqa_train_7.tsv,${data_dir}/vqa_train_8.tsv,${data_dir}/vqa_train_9.tsv,${data_dir}/vqa_train_10.tsv,${data_dir}/vqa_val.tsv
 ans2label_file=../../vqa_data/trainval_ans2label.pkl
@@ -59,7 +59,7 @@ encoder_prompt_length=100
 decoder_prompt_length=100
 # Specify the inference type in validation after each fine-tuning epoch
 # As mentioned in the readme, you can choose from allcand or beamsearch evaluation, default to allcand
-val_inference_type=allcand
+val_inference_type=beamsearch
 
 # Specify whether to activate unconstrained VQA finetuning, which does not use a pre-defined candidate answer set
 # If --unconstrained-training is acitvated, --ans2label-file will **not be used even if it is specified**
@@ -69,17 +69,17 @@ val_inference_type=allcand
 unconstrained_training_flag=""
 #unconstrained_training_flag="--unconstrained-training"
 
-for max_epoch in {50,}; do
-  echo "max_epoch "${max_epoch}
-  for warmup_ratio in {0.04,}; do
+for total_num_updates in {800000,}; do
+  echo "total_num_updates "${total_num_updates}
+  for warmup_updates in {1000,}; do
     echo "warmup_updates "${warmup_updates}  
-    for lr in {5e-5,}; do
+    for lr in {0.03,}; do
       echo "lr "${lr}
       for patch_image_size in {480,}; do
         echo "patch_image_size "${patch_image_size}
 
-        log_file=${log_dir}/${max_epoch}"_"${warmup_ratio}"_"${lr}"_"${patch_image_size}"_rank"${RANK}".log"
-        save_path=${save_dir}/${max_epoch}"_"${warmup_ratio}"_"${lr}"_"${patch_image_size}
+        log_file=${log_dir}/${total_num_updates}"_"${warmup_ratio}"_"${lr}"_"${patch_image_size}"_rank"${RANK}".log"
+        save_path=${save_dir}/${total_num_updates}"_"${warmup_ratio}"_"${lr}"_"${patch_image_size}
         mkdir -p $save_path
 
         python3 -m torch.distributed.launch --nproc_per_node=${GPUS_PER_NODE} --nnodes=${WORKER_CNT} --node_rank=${RANK} --master_addr=${MASTER_ADDR} --master_port=${MASTER_PORT} ../../train.py \
@@ -115,13 +115,14 @@ for max_epoch in {50,}; do
             --clip-norm=1.0 \
             --lr-scheduler=polynomial_decay \
             --lr=${lr} \
-            --max-epoch=${max_epoch} \
-            --warmup-ratio=${warmup_ratio} \
+            --total-num-update=${total_num_updates} \
+            --warmup-updates=${warmup_updates} \
             --log-format=simple \
             --log-interval=10 \
             --fixed-validation-seed=7 \
             --keep-last-epochs=15 \
-            --save-interval=1 --validate-interval=4 \
+            --save-interval=1 --validate-interval=1 \
+            --max-update=${total_num_updates} \
             --best-checkpoint-metric=vqa_score --maximize-best-checkpoint-metric \
             --max-src-length=${max_src_length} \
             --max-object-length=${max_object_length} \

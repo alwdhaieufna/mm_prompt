@@ -149,7 +149,7 @@ class MultiheadAttention(nn.Module):
         """
         if need_head_weights:
             need_weights = True
-
+#        print("qkv shape:", query.shape, key.shape, value.shape)
         is_tpu = query.device.type == "xla"
 
         tgt_len, bsz, embed_dim = query.size()
@@ -230,7 +230,7 @@ class MultiheadAttention(nn.Module):
             k = self.k_proj(key)
             v = self.v_proj(value)
         q *= self.scaling
-
+#        print("qkv shape 2:", q.shape, k.shape, v.shape)
         if self.bias_k is not None:
             assert self.bias_v is not None
             k = torch.cat([k, self.bias_k.repeat(1, bsz, 1)])
@@ -247,7 +247,7 @@ class MultiheadAttention(nn.Module):
                     ],
                     dim=1,
                 )
-
+#        print("qkv shape 3:", q.shape, k.shape, v.shape)
         q = (
             q.contiguous()
             .view(tgt_len, bsz * self.num_heads, self.head_dim)
@@ -291,6 +291,14 @@ class MultiheadAttention(nn.Module):
             if "prev_key_padding_mask" in saved_state:
                 prev_key_padding_mask = saved_state["prev_key_padding_mask"]
             assert k is not None and v is not None
+#            print("prev_key_padding_mask:", prev_key_padding_mask.shape)
+#            print("key_padding_mask:", key_padding_mask.shape)
+#            print("save_state:", saved_state)
+#            print("key_padding_mask:", key_padding_mask)
+#            if key_padding_mask is not None:
+#                print("before:", key_padding_mask.shape)
+            if key_padding_mask is not None and prev_key_padding_mask is not None:
+                key_padding_mask = key_padding_mask[:, 100:]
             key_padding_mask = MultiheadAttention._append_prev_key_padding_mask(
                 key_padding_mask=key_padding_mask,
                 prev_key_padding_mask=prev_key_padding_mask,
@@ -298,6 +306,24 @@ class MultiheadAttention(nn.Module):
                 src_len=k.size(1),
                 static_kv=static_kv,
             )
+            if prompt_kv is not None and key_padding_mask is not None and k.size(1) - key_padding_mask.size(1) + 100 > 0:# and key_padding_mask.shape[1] == 101:
+
+                key_padding_mask = torch.cat(
+                    [
+                        key_padding_mask,
+                        torch.zeros(key_padding_mask.size(0), k.size(1) - key_padding_mask.size(1) + 100).type_as(
+                            key_padding_mask
+                       ),
+                    ],
+                    dim=1,
+                )
+
+
+
+
+#            if key_padding_mask is not None:
+#                print("after:", key_padding_mask.shape)
+
 
             saved_state["prev_key"] = k.view(bsz, self.num_heads, -1, self.head_dim)
             saved_state["prev_value"] = v.view(bsz, self.num_heads, -1, self.head_dim)
@@ -307,7 +333,7 @@ class MultiheadAttention(nn.Module):
             incremental_state = self._set_input_buffer(incremental_state, saved_state)
         assert k is not None
         assert k.size(1) == src_len
-
+#        print("qkv shape 3:", q.shape, k.shape, v.shape)
         # This is part of a workaround to get around fork/join parallelism
         # not supporting Optional types.
         if key_padding_mask is not None and key_padding_mask.dim() == 0:
@@ -331,13 +357,54 @@ class MultiheadAttention(nn.Module):
                     ],
                     dim=1,
                 )
+
         if prompt_kv is not None:
+
             prompt_k, prompt_v = prompt_kv.split(1)
+            
+            p_bsz = prompt_k.size(1)
+            p_len = prompt_k.size(3)
+            
+#            print(prompt_k.shape)
+#            print("--------")
+
             prompt_k = prompt_k.squeeze(0).reshape(k.size(0), -1, k.size(2))
             prompt_v = prompt_v.squeeze(0).reshape(v.size(0), -1, v.size(2))
             k = torch.cat([prompt_k, k], dim=1)
             v = torch.cat([prompt_v, v], dim=1)
+#            print(torch.zeros(prompt_k.size(1), prompt_k.size(3)).type_as(
+#                            key_padding_mask
+#                        ).shape)
+#            print(key_padding_mask.shape)
+            
+#            key_padding_mask = torch.cat(
+#                    [
+#                        torch.zeros(p_bsz, p_len).type_as(
+#                            key_padding_mask
+#                        ),
+#                        key_padding_mask
+#                    ],
+#                    dim=1,
+#                )
+
+        if key_padding_mask is not None and k.size(1) - key_padding_mask.size(1) > 0:# and key_padding_mask.shape[1] == 101:
+
+            key_padding_mask = torch.cat(
+                [
+                    key_padding_mask,
+                    torch.zeros(key_padding_mask.size(0), k.size(1) - key_padding_mask.size(1)).type_as(
+                        key_padding_mask
+                    ),
+                ],
+                dim=1,
+            )
+
         if key_padding_mask is not None:
+#            print("++++++++++++")
+#            print(key_padding_mask.shape)
+#            print(k.shape)
+#            print("------")        
+
             assert key_padding_mask.size(0) == bsz
             assert key_padding_mask.size(1) == k.size(1)
         attn_weights = torch.bmm(q, k.transpose(1, 2))
